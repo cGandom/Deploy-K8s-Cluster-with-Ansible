@@ -1,0 +1,37 @@
+---
+- name: Install cri-dockerd, which is required since Kubernetes v1.25.0
+  hosts: all
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Create the cri-dockerd directory
+      ansible.builtin.file:
+        path: /opt/cri-dockerd
+        state: directory
+        mode: 0755
+
+    - name: Get OS Distributer's ID
+      ansible.builtin.command:
+        cmd: lsb_release -is
+      register: did_result
+      changed_when: false
+
+    - name: Get OS codename
+      ansible.builtin.command:
+        cmd: lsb_release -cs
+      register: codename_result
+      changed_when: false
+
+    - name: Download cri-dockerd version v0.2.5
+      ansible.builtin.get_url:
+        url: "https://github.com/Mirantis/cri-dockerd/releases/download/v0.2.5/\
+          cri-dockerd_0.2.5.3-0.{{ did_result.stdout | lower }}-{{ codename_result.stdout | lower }}_amd64.deb"
+        dest: "/opt/cri-dockerd/\
+          cri-dockerd_0.2.5.3-0.{{ did_result.stdout | lower }}-{{ codename_result.stdout | lower }}_amd64.deb"
+        mode: 0755
+
+    - name: Install cri-dockerd
+      ansible.builtin.apt:
+        deb: "/opt/cri-dockerd/\
+          cri-dockerd_0.2.5.3-0.{{ did_result.stdout | lower }}-{{ codename_result.stdout | lower }}_amd64.deb"
+        state: present

@@ -1,0 +1,105 @@
+---
+- name: Setup control plane in order to setup a Kubernetes cluster
+  hosts: control_plane
+  become: yes
+  gather_facts: yes
+  any_errors_fatal: yes
+  vars:
+    using_vagrant: false
+  tasks:
+    - name: Pulling images required for setting up a Kubernetes cluster with kubeadm
+      ansible.builtin.shell:
+        cmd: |
+          kubeadm config images pull --cri-socket=unix:///var/run/cri-dockerd.sock >> images_pulled.txt
+          if [ "$?" -eq 0 ]; then
+            mv images_pulled.txt images_pulled_success.txt
+            exit 0
+          else
+            mv images_pulled.txt images_pulled_error.txt
+            exit 1
+          fi
+        chdir: $HOME
+        creates: images_pulled_success.txt
+
+    - name: Initialize the cluster
+      ansible.builtin.shell:
+        cmd: |
+          kubeadm init --cri-socket=unix:///var/run/cri-dockerd.sock \
+            --pod-network-cidr=10.244.0.0/16 \
+            --apiserver-advertise-address={{ advertise_address }} >> cluster_initialized.txt
+          if [ "$?" -eq 0 ]; then
+            mv cluster_initialized.txt cluster_initialized_success.txt
+            exit 0
+          else
+            mv cluster_initialized.txt cluster_initialized_error.txt
+            exit 1
+          fi
+        chdir: $HOME
+        creates: cluster_initialized_success.txt
+      vars:
+        advertise_address: "{{ hostvars[inventory_hostname]['ansible_env'].SSH_CONNECTION.split(' ')[2] }}"
+
+    - name: Create .kube directory
+      ansible.builtin.file:
+        path: $HOME/.kube
+        state: directory
+        mode: 0755
+
+    - name: Copy admin.conf to user's kube config
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: $HOME/.kube/config
+        remote_src: yes
+        mode: 0644
+
+    - name: Download Flannel Pod network
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+        dest: /opt/kube-flannel.yml
+        mode: 0755
+
+    - name: Edit listening interface in Flannel to eth1 if using Vagrant virtualization test
+      ansible.builtin.lineinfile:
+        path: /opt/kube-flannel.yml
+        firstmatch: yes
+        insertafter: "^        - --ip-masq$"
+        line: "        - --iface=eth1"
+        state: present
+      when: using_vagrant
+
+    - name: Install Flannel Pod network
+      ansible.builtin.shell:
+        cmd: kubectl apply -f /opt/kube-flannel.yml >> pod_network_setup_success.txt
+        chdir: $HOME
+        creates: pod_network_setup_success.txt
+
+    - name: Get join command
+      ansible.builtin.command:
+        cmd: kubeadm token create --print-join-command
+      register: join_command_raw
+      changed_when: join_command_raw.rc == 0
+
+    - name: Set join command
+      ansible.builtin.set_fact:
+        join_command: "{{ join_command_raw.stdout_lines[0] }}"
+
+- name: Setup workers to join the cluster
+  hosts: workers
+  become: yes
+  gather_facts: no
+  any_errors_fatal: yes
+  tasks:
+    - name: Join workers to the cluster
+      ansible.builtin.shell:
+        cmd: |
+          {{ hostvars[groups['control_plane'][0]].join_command }} \
+            --cri-socket=unix:///var/run/cri-dockerd.sock >> node_joined.txt
+          if [ "$?" -eq 0 ]; then
+            mv node_joined.txt node_joined_success.txt
+            exit 0
+          else
+            mv node_joined.txt node_joined_error.txt
+            exit 1
+          fi
+        chdir: $HOME
+        creates: node_joined_success.txt

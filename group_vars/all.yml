@@ -1,0 +1,11 @@
+---
+
+# Kubernetes
+kube_version: 1.25.0-00
+
+# Docker
+# docker_version: latest
+# cri_dockerd_vesion: 0.2.5
+
+# Non-Root User
+non_root_user: ubuntu

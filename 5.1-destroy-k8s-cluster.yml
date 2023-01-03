@@ -1,0 +1,38 @@
+---
+- name: Destroy and clean the created k8s cluster in 5-setup-k8s.cluster.yml playbook (in control_plane)
+  hosts: control_plane
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Delete cluster with kubeadm
+      ansible.builtin.command:
+        cmd: kubeadm reset -f --cri-socket=unix:///var/run/cri-dockerd.sock
+      register: remove_control_plane_result
+      changed_when: remove_control_plane_result.rc == 0
+
+    - name: Remove the created flag files
+      ansible.builtin.file:
+        path: $HOME/{{ item }}
+        state: absent
+      with_items:
+        - images_pulled_success.txt
+        - cluster_initialized_success.txt
+        - pod_network_setup_success.txt
+
+- name: Destroy and clean the created k8s cluster in 5-setup-k8s.cluster.yml playbook (in workers)
+  hosts: workers
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Delete cluster with kubeadm
+      ansible.builtin.command:
+        cmd: kubeadm reset -f --cri-socket=unix:///var/run/cri-dockerd.sock
+      register: remove_control_plane_result
+      changed_when: remove_control_plane_result.rc == 0
+
+    - name: Remove the created flag files
+      ansible.builtin.file:
+        path: $HOME/{{ item }}
+        state: absent
+      with_items:
+        - node_joined_success.txt

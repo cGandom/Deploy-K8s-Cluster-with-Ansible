@@ -1,0 +1,80 @@
+---
+- name: Install kubernetes components
+  hosts: all
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Disable Swap since kubernetes can't work with swap enabled
+      ansible.builtin.command: "swapoff -a"
+      register: disable_swap_result
+      changed_when: disable_swap_result.rc == 0
+
+    - name: Disable Swap in fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+        replace: '# \1'
+
+    - name: Disable Swappiness and pass bridged IPv4 and IPv6 traffic to iptable's chains
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/k8s.conf
+        reload: yes
+      with_items:
+        - name: vm.swappiness
+          value: '0'
+        - name: net.bridge.bridge-nf-call-iptables
+          value: '1'
+        - name: net.bridge.bridge-nf-call-ip6tables
+          value: '1'
+        - name: net.ipv4.ip_forward
+          value: '1'
+
+    - name: Make sure overlay and br_netfilter modules are loaded in kernel
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - overlay
+        - br_netfilter
+
+    - name: Add Kubernetes GPG apt key
+      ansible.builtin.apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+
+    - name: Add Kubernetes repository
+      ansible.builtin.apt_repository:
+        repo: "deb https://apt.kubernetes.io/ kubernetes-xenial main"
+        filename: kubernetes
+        state: present
+        update_cache: yes
+
+    - name: Install kubelet v{{ kube_version | split("-") | first }}
+      ansible.builtin.apt:
+        name:
+          - kubelet={{ kube_version }}
+        state: present
+
+    - name: Install kubeadm v{{ kube_version | split("-") | first }}
+      ansible.builtin.apt:
+        name:
+          - kubeadm={{ kube_version }}
+        state: present
+
+    - name: Install kubectl v{{ kube_version | split("-") | first }}
+      ansible.builtin.apt:
+        name:
+          - kubectl={{ kube_version }}
+        state: present
+
+    - name: Hold kube stack version in v{{ kube_version | split("-") | first }}
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      with_items:
+        - kubelet
+        - kubeadm
+        - kubectl

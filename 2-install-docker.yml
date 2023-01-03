@@ -1,0 +1,64 @@
+---
+- name: Install Docker
+  hosts: all
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Uninstall old versions of docker
+      ansible.builtin.apt:
+        name:
+          - docker
+          - docker-engine
+          - docker.io
+          - containerd
+          - runc
+        state: absent
+        purge: yes
+
+    - name: Add Docker GPG apt key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Get Debian codename
+      ansible.builtin.command:
+        cmd: lsb_release -cs
+      register: codename_result
+      changed_when: false
+
+    - name: Add Docker repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ codename_result.stdout }} stable"
+        filename: docker
+        state: present
+        update_cache: yes
+
+    - name: Install Docker engine
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+
+    - name: Create Docker config directory
+      ansible.builtin.file:
+        path: /etc/docker
+        state: directory
+        mode: 0755
+
+    - name: Changing Docker to systemd driver
+      ansible.builtin.copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "exec-opts": ["native.cgroupdriver=systemd"]
+          }
+        mode: 0755
+
+    - name: Run Docker daemon
+      ansible.builtin.service:
+        name: docker
+        state: restarted
+        enabled: yes

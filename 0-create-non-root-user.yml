@@ -1,0 +1,25 @@
+---
+- name: Create the non-root user. username must be specified in group_vars/all.yml
+  hosts: all
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Create the '{{ non_root_user }}' user for manual login to the servers, if needed
+      ansible.builtin.user:
+        name: "{{ non_root_user }}"
+        state: present
+        createhome: yes
+        shell: /bin/bash
+
+    - name: Allow '{{ non_root_user }}' user to have passwordless sudo
+      ansible.builtin.lineinfile:
+        dest: /etc/sudoers
+        line: '{{ non_root_user }} ALL=(ALL) NOPASSWD: ALL'
+        validate: 'visudo -cf %s'
+
+    - name: Set up authorized keys for '{{ non_root_user }}' user
+      ansible.posix.authorized_key:
+        user: "{{ non_root_user }}"
+        key: "{{ item }}"
+      with_file:
+        - ~/.ssh/id_rsa.pub
